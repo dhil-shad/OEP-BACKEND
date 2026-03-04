@@ -1,5 +1,7 @@
 import csv
 from django.http import HttpResponse
+
+# User activity update
 from django.db.models import Avg, Max, Min, Count, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
