@@ -6,7 +6,7 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'role', 'enrollment_number', 'department')
+        fields = ('id', 'uid', 'username', 'email', 'role', 'enrollment_number', 'department', 'institution_name', 'institution_address', 'institution_phone', 'institution_website')
         read_only_fields = ('id',)
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -14,7 +14,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ('username', 'email', 'password', 'role', 'enrollment_number', 'department')
+        fields = ('uid', 'username', 'email', 'password', 'role', 'enrollment_number', 'department', 'institution_name', 'institution_address', 'institution_phone', 'institution_website')
         
     def create(self, validated_data):
         enrollment_num = validated_data.get('enrollment_number', '')
@@ -27,7 +27,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             password=validated_data['password'],
             role=validated_data.get('role', 'STUDENT'),
             enrollment_number=enrollment_num,
-            department=validated_data.get('department', '')
+            department=validated_data.get('department', ''),
+            institution_name=validated_data.get('institution_name', ''),
+            institution_address=validated_data.get('institution_address', ''),
+            institution_phone=validated_data.get('institution_phone', ''),
+            institution_website=validated_data.get('institution_website', '')
         )
         return user
 
@@ -41,3 +45,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['role'] = user.role
         token['username'] = user.username
         return token
+
+from .models import InstitutionJoinRequest
+
+class InstitutionJoinRequestSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.username', read_only=True)
+    institution_name = serializers.CharField(source='institution.institution_name', read_only=True)
+
+    class Meta:
+        model = InstitutionJoinRequest
+        fields = ('id', 'student', 'student_name', 'institution', 'institution_name', 'enrollment_number', 'status', 'created_at')
+        read_only_fields = ('id', 'status', 'created_at')
