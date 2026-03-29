@@ -1,19 +1,21 @@
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, viewsets, status
+from rest_framework import generics, viewsets, status, serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import InstitutionJoinRequest, Department, Notification
+from .models import InstitutionJoinRequest, Department, Notification, Section, StudyClass
 from .serializers import (
     UserSerializer, 
     UserRegistrationSerializer, 
     CustomTokenObtainPairSerializer, 
     InstitutionJoinRequestSerializer, 
     DepartmentSerializer,
-    NotificationSerializer
+    NotificationSerializer,
+    SectionSerializer,
+    StudyClassSerializer
 )
 
 User = get_user_model()
@@ -46,38 +48,73 @@ class PublicInstitutionDepartmentsView(APIView):
         serializer = DepartmentSerializer(departments, many=True)
         return Response(serializer.data)
 
+class PublicDepartmentSectionsView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, dept_id):
+        sections = Section.objects.filter(department_id=dept_id)
+        serializer = SectionSerializer(sections, many=True)
+        return Response(serializer.data)
+
 class JoinInstitutionView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request):
-        if request.user.role != 'STUDENT':
-            return Response({'detail': 'Only students can request to join an institution.'}, status=status.HTTP_403_FORBIDDEN)
+        if request.user.role not in ['STUDENT', 'INSTRUCTOR']:
+            return Response({'detail': 'Only students and instructors can request to join an institution.'}, status=status.HTTP_403_FORBIDDEN)
         
         uid = request.data.get('code')
+        role = request.data.get('role', 'STUDENT')
         enrollment_number = request.data.get('enrollment_number')
         department_id = request.data.get('department')
+        section_id = request.data.get('section')
+        study_class_id = request.data.get('study_class')
         
-        if not uid or not enrollment_number or not department_id:
-            return Response({'detail': 'Institution code, enrollment number, and department are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not uid or not department_id:
+            return Response({'detail': 'Institution code and department are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if role == 'STUDENT' and (not enrollment_number or not section_id or not study_class_id):
+            return Response({'detail': 'Enrollment number, section, and class are required for students.'}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
             institution = User.objects.get(uid=uid, role='INSTITUTION')
         except User.DoesNotExist:
             return Response({'detail': 'Invalid institution code.'}, status=status.HTTP_404_NOT_FOUND)
             
-        if InstitutionJoinRequest.objects.filter(student=request.user, institution=institution).exists():
-            return Response({'detail': 'You have already sent a request to this institution.'}, status=status.HTTP_400_BAD_REQUEST)
-            
+        existing_req = InstitutionJoinRequest.objects.filter(student=request.user, institution=institution).first()
+        if existing_req:
+            if existing_req.status == 'REJECTED':
+                existing_req.delete() # Allow re-application by deleting the rejected record
+            else:
+                return Response({'detail': 'You have already sent a request to this institution.'}, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
             dept = Department.objects.get(id=department_id, institution=institution)
         except Department.DoesNotExist:
             return Response({'detail': 'Invalid department.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        sec = None
+        if role == 'STUDENT':
+            try:
+                sec = Section.objects.get(id=section_id, department=dept)
+            except Section.DoesNotExist:
+                return Response({'detail': 'Invalid section.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        cls = None
+        if role == 'STUDENT':
+            try:
+                cls = StudyClass.objects.get(id=study_class_id, section=sec)
+            except StudyClass.DoesNotExist:
+                return Response({'detail': 'Invalid class.'}, status=status.HTTP_400_BAD_REQUEST)
+
         req = InstitutionJoinRequest.objects.create(
             student=request.user,
             institution=institution,
+            requested_role=role,
             enrollment_number=enrollment_number,
-            department=dept
+            department=dept,
+            section=sec,
+            study_class=cls
         )
         return Response(InstitutionJoinRequestSerializer(req).data, status=status.HTTP_201_CREATED)
 
@@ -107,17 +144,22 @@ class RespondJoinRequestView(APIView):
                     join_req.status = 'APPROVED'
                     join_req.save()
                     
-                    # Update student's institution and enrollment
-                    student = join_req.student
-                    student.enrollment_number = join_req.enrollment_number
-                    student.associated_institution = join_req.institution
-                    if join_req.department:
-                        student.department = join_req.department.name
-                    student.save()
+                    # Update student/instructor's role, institution and hierarchy
+                    user = join_req.student
+                    user.role = join_req.requested_role # Update role to what was requested
+                    user.associated_institution = join_req.institution
+                    user.department = join_req.department
+                    
+                    if user.role == 'STUDENT':
+                        user.enrollment_number = join_req.enrollment_number
+                        user.section = join_req.section
+                        user.study_class = join_req.study_class
+                    
+                    user.save()
 
                     # Create notification
                     Notification.objects.create(
-                        user=student,
+                        user=user,
                         title="Institution Join Request Approved",
                         message=f"Your request to join {join_req.institution.institution_name} has been approved."
                     )
@@ -226,3 +268,46 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+class SectionViewSet(viewsets.ModelViewSet):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = SectionSerializer
+
+    def get_queryset(self):
+        queryset = Section.objects.filter(department__institution=self.request.user)
+        dept_id = self.request.query_params.get('department_id')
+        if dept_id:
+            queryset = queryset.filter(department_id=dept_id)
+        return queryset.order_by('name')
+
+    def perform_create(self, serializer):
+        dept_id = self.request.data.get('department')
+        department = get_object_or_404(Department, id=dept_id, institution=self.request.user)
+        serializer.save(department=department)
+
+class StudyClassViewSet(viewsets.ModelViewSet):
+    serializer_class = StudyClassSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        section_id = self.request.query_params.get('section_id')
+        queryset = StudyClass.objects.filter(section__department__institution=self.request.user)
+        if section_id:
+            queryset = queryset.filter(section_id=section_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        section_id = self.request.data.get('section')
+        try:
+            Section.objects.get(id=section_id, department__institution=self.request.user)
+            serializer.save()
+        except Section.DoesNotExist:
+            raise serializers.ValidationError('Invalid section.')
+
+class PublicSectionClassesView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, section_id):
+        classes = StudyClass.objects.filter(section_id=section_id)
+        serializer = StudyClassSerializer(classes, many=True)
+        return Response(serializer.data)
