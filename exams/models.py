@@ -13,6 +13,11 @@ class Exam(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_exams')
+    
+    # Targeted hierarchy
+    section = models.ForeignKey('users.Section', on_delete=models.SET_NULL, null=True, blank=True, related_name='exams')
+    study_class = models.ForeignKey('users.StudyClass', on_delete=models.SET_NULL, null=True, blank=True, related_name='exams')
+    
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     duration_minutes = models.IntegerField(help_text="Duration of the exam in minutes")

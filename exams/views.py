@@ -24,8 +24,17 @@ class ExamViewSet(viewsets.ModelViewSet):
         # If student, only show active exams where end_time > now
         user = self.request.user
         if user.role == 'STUDENT':
-            # Students should only see exams they have joined via code.
-            return Exam.objects.filter(authorized_students=user, is_active=True)
+            # Students should see exams they are authorized for OR exams targeted at their section & class
+            # We explicitly check that section and study_class are not None to prevent 
+            # independent exams from implicitly matching isolated students.
+            q_objects = Q(authorized_students=user)
+            if user.section and user.study_class:
+                q_objects |= Q(section=user.section, study_class=user.study_class)
+                
+            return Exam.objects.filter(
+                q_objects,
+                is_active=True
+            ).distinct()
         elif user.role == 'INSTRUCTOR':
             # Instructors see only their own exams in a list view, or we can let them see all
             # Let's show them their own exams for now

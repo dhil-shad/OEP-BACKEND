@@ -274,7 +274,14 @@ class SectionViewSet(viewsets.ModelViewSet):
     serializer_class = SectionSerializer
 
     def get_queryset(self):
-        queryset = Section.objects.filter(department__institution=self.request.user)
+        user = self.request.user
+        if user.role == 'INSTITUTION':
+            queryset = Section.objects.filter(department__institution=user)
+        elif user.role == 'INSTRUCTOR':
+            queryset = Section.objects.filter(department__institution=user.associated_institution)
+        else:
+            return Section.objects.none()
+
         dept_id = self.request.query_params.get('department_id')
         if dept_id:
             queryset = queryset.filter(department_id=dept_id)
@@ -290,8 +297,15 @@ class StudyClassViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
+        user = self.request.user
+        if user.role == 'INSTITUTION':
+            queryset = StudyClass.objects.filter(section__department__institution=user)
+        elif user.role == 'INSTRUCTOR':
+            queryset = StudyClass.objects.filter(section__department__institution=user.associated_institution)
+        else:
+            return StudyClass.objects.none()
+
         section_id = self.request.query_params.get('section_id')
-        queryset = StudyClass.objects.filter(section__department__institution=self.request.user)
         if section_id:
             queryset = queryset.filter(section_id=section_id)
         return queryset

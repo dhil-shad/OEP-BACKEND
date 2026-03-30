@@ -45,11 +45,14 @@ class ExamSerializer(serializers.ModelSerializer):
     instructor_name = serializers.ReadOnlyField(source='instructor.username')
     proctoring = ProctoringSettingsSerializer(required=False)
     invites = ExamInviteSerializer(many=True, read_only=True)
+    section_name = serializers.ReadOnlyField(source='section.name')
+    study_class_name = serializers.ReadOnlyField(source='study_class.name')
 
     class Meta:
         model = Exam
         fields = (
             'id', 'title', 'description', 'instructor', 'instructor_name',
+            'section', 'section_name', 'study_class', 'study_class_name',
             'start_time', 'end_time', 'duration_minutes', 'pass_percentage',
             'is_active', 'is_randomized', 'unique_code', 'created_at', 'questions', 'proctoring', 'invites'
         )
