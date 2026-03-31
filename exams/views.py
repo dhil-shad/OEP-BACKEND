@@ -20,6 +20,17 @@ class ExamViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(instructor=self.request.user)
 
+    def partial_update(self, request, *args, **kwargs):
+        # Block activating an exam that has no questions
+        if request.data.get('is_active') is True:
+            exam = self.get_object()
+            if not exam.questions.exists():
+                return Response(
+                    {'detail': 'Cannot activate an exam with no questions. Please add at least one question first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        return super().partial_update(request, *args, **kwargs)
+
     def get_queryset(self):
         # If student, only show active exams where end_time > now
         user = self.request.user
@@ -40,6 +51,7 @@ class ExamViewSet(viewsets.ModelViewSet):
             # Let's show them their own exams for now
             return Exam.objects.filter(instructor=user)
         return super().get_queryset()
+
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def start(self, request, pk=None):

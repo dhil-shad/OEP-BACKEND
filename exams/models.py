@@ -22,7 +22,7 @@ class Exam(models.Model):
     end_time = models.DateTimeField()
     duration_minutes = models.IntegerField(help_text="Duration of the exam in minutes")
     pass_percentage = models.FloatField(default=50.0)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     is_randomized = models.BooleanField(default=True, help_text="Randomize question sequence for each student")
     unique_code = models.CharField(max_length=10, default=generate_unique_code, unique=True, help_text="Unique code for students to join the exam")
     authorized_students = models.ManyToManyField(User, related_name='authorized_exams', blank=True)
