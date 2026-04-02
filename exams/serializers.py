@@ -47,6 +47,7 @@ class ExamSerializer(serializers.ModelSerializer):
     invites = ExamInviteSerializer(many=True, read_only=True)
     section_name = serializers.ReadOnlyField(source='section.name')
     study_class_name = serializers.ReadOnlyField(source='study_class.name')
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Exam
@@ -54,9 +55,21 @@ class ExamSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'instructor', 'instructor_name',
             'section', 'section_name', 'study_class', 'study_class_name',
             'start_time', 'end_time', 'duration_minutes', 'pass_percentage',
-            'is_active', 'is_randomized', 'unique_code', 'created_at', 'questions', 'proctoring', 'invites'
+            'is_active', 'is_randomized', 'unique_code', 'created_at', 'questions', 'proctoring', 'invites', 'status'
         )
         read_only_fields = ('instructor', 'created_at', 'instructor_name')
+    
+    def get_status(self, obj):
+        from django.utils import timezone
+        now = timezone.now()
+        
+        if not obj.is_active or obj.questions.count() == 0:
+            return "Draft"
+        if now < obj.start_time:
+            return "Upcoming"
+        if obj.start_time <= now <= obj.end_time:
+            return "Live"
+        return "Ended"
         
     def create(self, validated_data):
         proctoring_data = validated_data.pop('proctoring', None)

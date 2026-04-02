@@ -56,7 +56,7 @@ class IntegrationTest(TestCase):
         self.student.refresh_from_db()
         self.assertEqual(self.student.enrollment_number, 'EN001')
         self.assertEqual(self.student.associated_institution, self.institution)
-        self.assertEqual(self.student.department, 'CS')
+        self.assertEqual(self.student.department.name, 'CS')
 
         # Verify notification
         self.assertEqual(Notification.objects.count(), 1)

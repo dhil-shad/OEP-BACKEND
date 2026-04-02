@@ -90,8 +90,9 @@ class StudyClassSerializer(serializers.ModelSerializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = '__all__'
+        fields = ('id', 'user', 'title', 'message', 'is_read', 'created_at')
         read_only_fields = ('id', 'created_at')
+        extra_kwargs = {'user': {'required': False}} # Optional so self-notifications still work without explicitly sending user id
 
 class InstitutionJoinRequestSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.username', read_only=True)

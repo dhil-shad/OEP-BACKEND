@@ -123,18 +123,35 @@ class InstitutionRequestsView(generics.ListAPIView):
     serializer_class = InstitutionJoinRequestSerializer
 
     def get_queryset(self):
-        if self.request.user.role != 'INSTITUTION':
-            return InstitutionJoinRequest.objects.none()
-        return InstitutionJoinRequest.objects.filter(institution=self.request.user).order_by('-created_at')
+        user = self.request.user
+        if user.role == 'INSTITUTION':
+            return InstitutionJoinRequest.objects.filter(institution=user).order_by('-created_at')
+        elif user.role == 'INSTRUCTOR' and user.associated_institution:
+            # Instructors only see requests for their own department
+            return InstitutionJoinRequest.objects.filter(
+                institution=user.associated_institution,
+                department=user.department
+            ).order_by('-created_at')
+        return InstitutionJoinRequest.objects.none()
 
 class RespondJoinRequestView(APIView):
     permission_classes = (IsAuthenticated,)
     
     def post(self, request, pk):
-        if request.user.role != 'INSTITUTION':
+        user = request.user
+        if user.role == 'INSTITUTION':
+            join_req = get_object_or_404(InstitutionJoinRequest, pk=pk, institution=user)
+        elif user.role == 'INSTRUCTOR' and user.associated_institution:
+            # Instructors can only respond to requests in their own department
+            join_req = get_object_or_404(
+                InstitutionJoinRequest, 
+                pk=pk, 
+                institution=user.associated_institution,
+                department=user.department
+            )
+        else:
             return Response({'detail': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
             
-        join_req = get_object_or_404(InstitutionJoinRequest, pk=pk, institution=request.user)
         action = request.data.get('action')
         
         if action == 'approve':
@@ -208,7 +225,7 @@ class InstitutionStudentActionView(APIView):
             department = get_object_or_404(Department, pk=dept_id, institution=request.user)
             
             student.role = 'INSTRUCTOR'
-            student.department = department.name
+            student.department = department
             student.save()
             return Response({'detail': f'Student {student.username} promoted to Instructor in {department.name}.'})
             
@@ -267,7 +284,29 @@ class NotificationViewSet(viewsets.ModelViewSet):
         return Notification.objects.filter(user=self.request.user).order_by('-created_at')
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user = self.request.user
+        target_user_id = self.request.data.get('user')
+        
+        if target_user_id and user.role in ['INSTRUCTOR', 'INSTITUTION']:
+            try:
+                target_user = User.objects.get(id=target_user_id)
+                # Validation: Target must be a student in the same institution
+                same_inst = target_user.associated_institution_id == user.associated_institution_id
+                same_dept = target_user.department_id == user.department_id
+                
+                if user.role == 'INSTITUTION' and target_user.associated_institution_id == user.id:
+                    serializer.save(user=target_user)
+                    return
+                elif user.role == 'INSTRUCTOR' and same_inst and same_dept:
+                    serializer.save(user=target_user)
+                    return
+                else:
+                    raise serializers.ValidationError("You do not have permission to send notifications to this user.")
+            except User.DoesNotExist:
+                raise serializers.ValidationError("Target user not found.")
+        
+        # Default behavior: self-notification
+        serializer.save(user=user)
 
 class SectionViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAuthenticated,)

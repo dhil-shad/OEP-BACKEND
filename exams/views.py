@@ -21,30 +21,25 @@ class ExamViewSet(viewsets.ModelViewSet):
         serializer.save(instructor=self.request.user)
 
     def partial_update(self, request, *args, **kwargs):
-        # Block activating an exam that has no questions
-        if request.data.get('is_active') is True:
-            exam = self.get_object()
-            if not exam.questions.exists():
-                return Response(
-                    {'detail': 'Cannot activate an exam with no questions. Please add at least one question first.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        # Allow toggling is_active as a 'Published' status.
+        # The dynamic 'status' will handle the rest.
         return super().partial_update(request, *args, **kwargs)
 
     def get_queryset(self):
         # If student, only show active exams where end_time > now
         user = self.request.user
+        now = timezone.now()
         if user.role == 'STUDENT':
-            # Students should see exams they are authorized for OR exams targeted at their section & class
-            # We explicitly check that section and study_class are not None to prevent 
-            # independent exams from implicitly matching isolated students.
             q_objects = Q(authorized_students=user)
             if user.section and user.study_class:
                 q_objects |= Q(section=user.section, study_class=user.study_class)
                 
-            return Exam.objects.filter(
+            return Exam.objects.annotate(q_count=Count('questions')).filter(
                 q_objects,
-                is_active=True
+                is_active=True,
+                q_count__gt=0,
+                start_time__lte=now,
+                end_time__gt=now
             ).distinct()
         elif user.role == 'INSTRUCTOR':
             # Instructors see only their own exams in a list view, or we can let them see all
@@ -104,12 +99,20 @@ class ExamViewSet(viewsets.ModelViewSet):
         if not code:
             return Response({'detail': 'Please provide a joining code.'}, status=status.HTTP_400_BAD_REQUEST)
             
+        now = timezone.now()
         try:
-            exam = Exam.objects.get(unique_code=code, is_active=True)
+            exam = Exam.objects.annotate(q_count=Count('questions')).get(
+                unique_code=code, 
+                is_active=True,
+                q_count__gt=0
+            )
         except Exam.DoesNotExist:
             return Response({'detail': 'Invalid or inactive exam code.'}, status=status.HTTP_404_NOT_FOUND)
             
-        if timezone.now() > exam.end_time:
+        if now < exam.start_time:
+             return Response({'detail': f'This exam will start at {exam.start_time}.'}, status=status.HTTP_400_BAD_REQUEST)
+             
+        if now > exam.end_time:
              return Response({'detail': 'This exam has already ended.'}, status=status.HTTP_400_BAD_REQUEST)
              
         # Add student to authorized_students
@@ -248,18 +251,15 @@ class ExamViewSet(viewsets.ModelViewSet):
         submission.status = 'SUBMITTED'
         submission.end_time = timezone.now()
         submission.score = total_score
-        # Calculate passed if all questions are MCQ/TF, otherwise leave null for manual grading
-        has_manual = answers.filter(question__question_type__in=['DESC', 'CODE']).exists()
-        if not has_manual:
-            max_score = sum(q.marks for q in exam.questions.all())
-            if max_score > 0:
-                percentage = (total_score / max_score) * 100
-                submission.passed = percentage >= exam.pass_percentage
-            else:
-                submission.passed = True # Default pass if exam has no marks
-            submission.status = 'GRADED'
+        
+        # We always keep it as SUBMITTED until the instructor finalizes it from the grade panel.
+        # This gives instructors a chance to review proctoring logs or manually overrule scores.
+        max_score = sum(q.marks for q in exam.questions.all())
+        if max_score > 0:
+            percentage = (total_score / max_score) * 100
+            submission.passed = percentage >= exam.pass_percentage
         else:
-            submission.status = 'SUBMITTED'
+            submission.passed = True
 
         submission.save()
 
@@ -416,8 +416,8 @@ class SubmissionViewSet(viewsets.ModelViewSet):
                 return Submission.objects.filter(exam__id=exam_id, exam__instructor=user)
             return Submission.objects.filter(exam__instructor=user)
         elif user.role == 'STUDENT':
-            # Students can only see their own submissions
-            return Submission.objects.filter(student=user)
+            # Students can only see their own submissions once they are finalized (GRADED)
+            return Submission.objects.filter(student=user, status='GRADED')
         return Submission.objects.none()
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
@@ -426,7 +426,8 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         if user.role != 'STUDENT':
             return Response({'detail': 'Only students can view their results.'}, status=status.HTTP_403_FORBIDDEN)
             
-        submissions = Submission.objects.filter(student=user).order_by('-end_time', '-start_time')
+        # Only show results once the instructor has finalized grading (status='GRADED')
+        submissions = Submission.objects.filter(student=user, status='GRADED').order_by('-end_time', '-start_time')
         # We need exam title in the serializer response, but SubmissionSerializer doesn't have it.
         # Let's augment the response data with exam title.
         serializer = self.get_serializer(submissions, many=True)
