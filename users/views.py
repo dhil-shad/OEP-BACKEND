@@ -283,30 +283,51 @@ class NotificationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Notification.objects.filter(user=self.request.user).order_by('-created_at')
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        target_user_id = self.request.data.get('user')
-        
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        target_role = request.data.get('target_role') # 'STUDENT', 'INSTRUCTOR', or None for specific
+        target_user_id = request.data.get('user')
+        title = request.data.get('title')
+        message = request.data.get('message')
+
+        if not title or not message:
+            return Response({'detail': 'Title and message are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Institution Bulk Messaging
+        if user.role == 'INSTITUTION' and target_role in ['STUDENT', 'INSTRUCTOR']:
+            targets = User.objects.filter(
+                associated_institution=user,
+                role=target_role
+            )
+            
+            notifications = [
+                Notification(user=target, title=title, message=message)
+                for target in targets
+            ]
+            Notification.objects.bulk_create(notifications)
+            return Response({'detail': f'Notification sent to all {target_role.lower()}s ({len(notifications)}).'}, status=status.HTTP_201_CREATED)
+
+        # Existing Targeted Messaging logic
         if target_user_id and user.role in ['INSTRUCTOR', 'INSTITUTION']:
             try:
                 target_user = User.objects.get(id=target_user_id)
-                # Validation: Target must be a student in the same institution
-                same_inst = target_user.associated_institution_id == user.associated_institution_id
-                same_dept = target_user.department_id == user.department_id
+                # Validation: Target must be in the same institution/department context
+                if user.role == 'INSTITUTION':
+                    if target_user.associated_institution_id != user.id:
+                        return Response({'detail': 'User is not part of your institution.'}, status=status.HTTP_403_FORBIDDEN)
+                else: # Instructor
+                    if target_user.associated_institution_id != user.associated_institution_id or \
+                       target_user.department_id != user.department_id:
+                        return Response({'detail': 'User is not in your department.'}, status=status.HTTP_403_FORBIDDEN)
                 
-                if user.role == 'INSTITUTION' and target_user.associated_institution_id == user.id:
-                    serializer.save(user=target_user)
-                    return
-                elif user.role == 'INSTRUCTOR' and same_inst and same_dept:
-                    serializer.save(user=target_user)
-                    return
-                else:
-                    raise serializers.ValidationError("You do not have permission to send notifications to this user.")
+                Notification.objects.create(user=target_user, title=title, message=message)
+                return Response({'detail': 'Notification sent.'}, status=status.HTTP_201_CREATED)
             except User.DoesNotExist:
-                raise serializers.ValidationError("Target user not found.")
-        
-        # Default behavior: self-notification
-        serializer.save(user=user)
+                return Response({'detail': 'Target user not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Default: Self-notification
+        Notification.objects.create(user=user, title=title, message=message)
+        return Response({'detail': 'Notification created.'}, status=status.HTTP_201_CREATED)
 
 class SectionViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAuthenticated,)
