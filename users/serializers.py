@@ -9,12 +9,13 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     associated_institution_name = serializers.CharField(source='associated_institution.institution_name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
+    section_name = serializers.CharField(source='section.name', read_only=True)
     study_class_name = serializers.CharField(source='study_class.name', read_only=True)
 
     class Meta:
         model = User
-        fields = ('id', 'uid', 'username', 'email', 'role', 'enrollment_number', 'department', 'department_name', 'section', 'study_class', 'study_class_name', 'institution_name', 'institution_address', 'institution_phone', 'institution_website', 'associated_institution', 'associated_institution_name')
-        read_only_fields = ('id', 'associated_institution_name', 'study_class_name', 'department_name')
+        fields = ('id', 'uid', 'username', 'email', 'role', 'enrollment_number', 'department', 'department_name', 'section', 'section_name', 'study_class', 'study_class_name', 'institution_name', 'institution_address', 'institution_phone', 'institution_website', 'associated_institution', 'associated_institution_name')
+        read_only_fields = ('id', 'associated_institution_name', 'study_class_name', 'section_name', 'department_name')
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)

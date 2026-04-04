@@ -80,6 +80,26 @@ class ExamSerializer(serializers.ModelSerializer):
             ProctoringSettings.objects.create(exam=exam) # Create default proctoring settings
         return exam
 
+    def update(self, instance, validated_data):
+        proctoring_data = validated_data.pop('proctoring', None)
+        
+        # Update Exam fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Update ProctoringSettings fields
+        if proctoring_data:
+            proctoring_instance = getattr(instance, 'proctoring', None)
+            if proctoring_instance:
+                for attr, value in proctoring_data.items():
+                    setattr(proctoring_instance, attr, value)
+                proctoring_instance.save()
+            else:
+                ProctoringSettings.objects.create(exam=instance, **proctoring_data)
+            
+        return instance
+
 class StudentOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Option
@@ -119,5 +139,5 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Submission
-        fields = ('id', 'exam', 'exam_title', 'student', 'student_name', 'start_time', 'end_time', 'status', 'score', 'passed', 'answers', 'logs')
-        read_only_fields = ('student', 'start_time', 'end_time', 'status', 'score', 'passed', 'exam_title')
+        fields = ('id', 'exam', 'exam_title', 'student', 'student_name', 'start_time', 'end_time', 'status', 'score', 'passed', 'answers', 'logs', 'webcam_recording')
+        read_only_fields = ('student', 'start_time', 'end_time', 'status', 'score', 'passed', 'exam_title', 'webcam_recording')

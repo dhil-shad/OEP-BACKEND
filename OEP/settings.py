@@ -154,3 +154,8 @@ SIMPLE_JWT = {
 # CORS Configuration - Allow React Frontend
 CORS_ALLOW_ALL_ORIGINS = True # Change in production
 CORS_ALLOW_CREDENTIALS = True
+
+# Media files (Uploaded recordings, etc.)
+import os
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

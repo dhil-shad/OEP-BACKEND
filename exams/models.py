@@ -104,6 +104,7 @@ class Submission(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ONGOING')
     score = models.FloatField(null=True, blank=True)
     passed = models.BooleanField(null=True, blank=True)
+    webcam_recording = models.FileField(upload_to='recordings/', null=True, blank=True)
     
     class Meta:
         unique_together = ('exam', 'student') # Prevent multiple attempts

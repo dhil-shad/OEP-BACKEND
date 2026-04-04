@@ -6,6 +6,7 @@ from django.db.models import Avg, Max, Min, Count, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from .models import Exam, Question, Option, Submission, Answer, ExamInvite, ActivityLog
@@ -264,6 +265,26 @@ class ExamViewSet(viewsets.ModelViewSet):
         submission.save()
 
         return Response({'detail': 'Exam submitted successfully.', 'score': total_score})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated],
+            parser_classes=[MultiPartParser])
+    def upload_recording(self, request, pk=None):
+        exam = self.get_object()
+        user = request.user
+
+        try:
+            submission = Submission.objects.get(exam=exam, student=user)
+        except Submission.DoesNotExist:
+            return Response({'detail': 'No submission found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        recording = request.FILES.get('recording')
+        if not recording:
+            return Response({'detail': 'No recording file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        submission.webcam_recording = recording
+        submission.save()
+
+        return Response({'detail': 'Recording uploaded successfully.'})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def log_activity(self, request, pk=None):
