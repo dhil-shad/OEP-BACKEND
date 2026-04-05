@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -18,6 +19,17 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'associated_institution_name', 'study_class_name', 'section_name', 'department_name')
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message='This username is already taken.')]
+    )
+    email = serializers.EmailField(
+        required=True,
+        validators=[UniqueValidator(queryset=User.objects.all(), message='This email is already in use.')],
+        error_messages={
+            'invalid': 'Enter a valid email address.',
+            'required': 'Email is required.'
+        }
+    )
     password = serializers.CharField(write_only=True)
     
     class Meta:

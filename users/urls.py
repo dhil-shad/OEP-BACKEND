@@ -6,7 +6,8 @@ from .views import (
     PublicInstitutionDepartmentsView, InstitutionStudentsView,
     InstitutionStudentActionView, InstitutionInstructorsView,
     DepartmentStudentsView, SectionViewSet, PublicDepartmentSectionsView,
-    StudyClassViewSet, PublicSectionClassesView
+    StudyClassViewSet, PublicSectionClassesView,
+    PasswordResetRequestView, PasswordResetConfirmView
 )
 
 urlpatterns = [
@@ -30,4 +31,6 @@ urlpatterns = [
     path('sections/<int:pk>/', SectionViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='section-detail'),
     path('classes/', StudyClassViewSet.as_view({'get': 'list', 'post': 'create'}), name='class-list'),
     path('classes/<int:pk>/', StudyClassViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='class-detail'),
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password_reset'),
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
 ]

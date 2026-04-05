@@ -1,5 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.core.mail import send_mail
+from django.conf import settings
 from rest_framework import generics, viewsets, status, serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -385,3 +390,55 @@ class PublicSectionClassesView(APIView):
         classes = StudyClass.objects.filter(section_id=section_id)
         serializer = StudyClassSerializer(classes, many=True)
         return Response(serializer.data)
+class PasswordResetRequestView(APIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'detail': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # We return success even if user doesn't exist to prevent email enumeration
+            return Response({'detail': 'If an account exists with this email, a reset link has been sent.'}, status=status.HTTP_200_OK)
+
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # In a real app, this should link to your frontend reset page
+        reset_link = f"http://localhost:5174/reset-password/{uid}/{token}/"
+        
+        subject = "Password Reset Request"
+        message = f"Hello {user.username},\n\nYou requested a password reset. Click the link below to reset your password:\n\n{reset_link}\n\nIf you did not request this, please ignore this email."
+        
+        try:
+            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+            return Response({'detail': 'If an account exists with this email, a reset link has been sent.'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'detail': f'Error sending email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        uidb64 = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('password')
+
+        if not uidb64 or not token or not new_password:
+            return Response({'detail': 'All fields are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+
+        if user is not None and default_token_generator.check_token(user, token):
+            user.set_password(new_password)
+            user.save()
+            return Response({'detail': 'Password has been reset successfully.'}, status=status.HTTP_200_OK)
+        else:
+            return Response({'detail': 'Invalid or expired reset link.'}, status=status.HTTP_400_BAD_REQUEST)

@@ -12,6 +12,7 @@ class User(AbstractUser):
         ('STUDENT', 'Student'),
         ('INSTITUTION', 'Institution'),
     )
+    email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='STUDENT')
     uid = models.CharField(max_length=15, default=generate_uid, editable=False)
     
