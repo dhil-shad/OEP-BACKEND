@@ -31,20 +31,26 @@ class ExamViewSet(viewsets.ModelViewSet):
         user = self.request.user
         now = timezone.now()
         if user.role == 'STUDENT':
-            q_objects = Q(authorized_students=user)
+            # Base visibility: Independent instructor's exams OR instructor from student's institution
+            visibility_q = Q(instructor__associated_institution=None)
+            if user.associated_institution:
+                visibility_q |= Q(instructor__associated_institution=user.associated_institution)
+            
+            # Specific access: Explicitly authorized OR targeted section/class
+            access_q = Q(authorized_students=user)
             if user.section and user.study_class:
-                q_objects |= Q(section=user.section, study_class=user.study_class)
+                access_q |= Q(section=user.section, study_class=user.study_class)
                 
             return Exam.objects.annotate(q_count=Count('questions')).filter(
-                q_objects,
+                visibility_q,
+                access_q,
                 is_active=True,
                 q_count__gt=0,
                 start_time__lte=now,
                 end_time__gt=now
             ).distinct()
         elif user.role == 'INSTRUCTOR':
-            # Instructors see only their own exams in a list view, or we can let them see all
-            # Let's show them their own exams for now
+            # Instructors see only their own exams
             return Exam.objects.filter(instructor=user)
         return super().get_queryset()
 
@@ -115,6 +121,15 @@ class ExamViewSet(viewsets.ModelViewSet):
              
         if now > exam.end_time:
              return Response({'detail': 'This exam has already ended.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Institutional restriction check
+        instructor = exam.instructor
+        if instructor.associated_institution:
+            if user.associated_institution != instructor.associated_institution:
+                institution_name = instructor.associated_institution.institution_name or instructor.associated_institution.username
+                return Response({
+                    'detail': f'This exam is only accessible to students of {institution_name}.'
+                }, status=status.HTTP_403_FORBIDDEN)
              
         # Add student to authorized_students
         exam.authorized_students.add(user)
